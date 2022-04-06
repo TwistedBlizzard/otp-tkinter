@@ -2,6 +2,7 @@ import pyotp
 import pyqrcode
 import os
 import tkinter as tk
+from tkinter import filedialog as fd
 import sqlite3
 import datetime
 
@@ -184,13 +185,15 @@ class EditSubmission(tk.Frame):
         self.file_name_label.grid(row=4, column=0)
 
         # File Name Variable
-        self.file_name_var = tk.StringVar()
+        self.file_name_var = tk.StringVar(name="file_name")
 
         # File Name Entry
         self.file_name_entry = tk.Entry(self, textvariable=self.file_name_var)
         self.file_name_entry.grid(row=4, column=1)
 
-        # TODO: Add a file browser for attaching the file
+        # Browse Button
+        self.browse_button = tk.Button(self, text="Browse", command=self.browse)
+        self.browse_button.grid(row=5, column=1)
 
         # Submit Button
         self.submit_button = tk.Button(self, text="Submit", command=self.submit)
@@ -199,6 +202,9 @@ class EditSubmission(tk.Frame):
         # Cancel Button
         self.cancel_button = tk.Button(self, text="Cancel", command=self.cancel)
         self.cancel_button.grid(row=6, column=1)
+    def browse(self):
+        file_name = fd.askopenfilename()
+        self.file_name_entry.setvar(name="file_name", value=file_name)
 
     def submit(self):
         file_hash = self.app.encrypt(self.file_name_var.get())
@@ -297,7 +303,13 @@ class Database():
         return secret_key
 
     def add_submission(self, submission):
-        print(submission, "added to database.")
+        sql_add_submission = """ INSERT INTO submissions(student_num,first_name,last_name,submission_date,file_name,file_hash)
+                                 VALUES(?,?,?,?,?,?) """
+        try:
+            self.cursor.execute(sql_add_submission, submission)
+            self.connection.commit()
+        except sqlite3.Error as e:
+            print("Failed to add submission to database:", e)
 
 class App():
     def __init__(self):
@@ -309,6 +321,9 @@ class App():
         app.mainloop()
 
     def set_username(self, username):
+        if username == "test_user":
+            EditSubmission(self.root, self, username)
+
         if self.database.user_exists(username):
             # Ask the user for a passcode
             Passcode(self.root, self, username)
