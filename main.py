@@ -3,6 +3,7 @@ import pyqrcode
 import os
 import tkinter as tk
 import sqlite3
+import datetime
 
 '''To install dependencies:
 pip install pyotp pyqrcode pypng'''
@@ -45,7 +46,7 @@ class Username(tk.Frame):
 
     def cancel(self):
         # Close the Window
-        self.destroy()
+        exit()
 
 class Passcode(tk.Frame):
     def __init__(self, master, app, username):
@@ -109,18 +110,111 @@ class QRPopup(tk.Toplevel):
         # Done Button
         done_button = tk.Button(self, text="Done", command=self.done)
         done_button.pack()
-    
+
     def __del__(self):
         # Delete the Temporary PNG if it Exists
         try:
             os.remove("qr_temp.png")
         except FileNotFoundError:
             pass
-
-    def done(self):
         # Ask the User to Authenticate
         self.app.set_username(self.username)
+
+    def done(self):
         # Close the Window
+        self.destroy()
+
+class EditSubmission(tk.Frame):
+    def __init__(self, master, app, username):
+        super().__init__(master)
+
+        self.pack()
+
+        self.app = app
+        self.username = username
+
+        sub_date = datetime.date.today().strftime("%d/%m/%y")
+
+        # Student Number Label
+        self.student_num_label = tk.Label(self, text="Student Number: ")
+        self.student_num_label.grid(row=0, column=0)
+
+        # Student Number String Variable
+        self.student_num_var = tk.StringVar(value=self.username)
+
+        # Student Number Entry
+        self.student_num_entry = tk.Entry(self, textvariable=self.student_num_var, state='readonly')
+        self.student_num_entry.grid(row=0, column=1)
+
+        # First Name Label
+        self.first_name_label = tk.Label(self, text="First Name: ")
+        self.first_name_label.grid(row=1, column=0)
+
+        # First Name Variable
+        self.first_name_var = tk.StringVar()
+
+        # First Name Entry
+        self.first_name_entry = tk.Entry(self, textvariable=self.first_name_var)
+        self.first_name_entry.grid(row=1, column=1)
+
+        # Last Name Label
+        self.last_name_label = tk.Label(self, text="Last Name: ")
+        self.last_name_label.grid(row=2, column=0)
+
+        # Last Name Varible
+        self.last_name_var = tk.StringVar()
+
+        # Last Name Entry
+        self.last_name_entry = tk.Entry(self, textvariable=self.last_name_var)
+        self.last_name_entry.grid(row=2, column=1)
+
+        # Submission Date Label
+        self.submission_date_label = tk.Label(self, text="Submission Date: ")
+        self.submission_date_label.grid(row=3, column=0)
+
+        # Submission Date Variable
+        self.submission_date_var = tk.StringVar(value=sub_date)
+
+        # Submission Date Entry
+        self.submission_date_entry = tk.Entry(self, textvariable=self.submission_date_var, state='readonly')
+        self.submission_date_entry.grid(row=3, column=1)
+
+        # File Name Label
+        self.file_name_label = tk.Label(self, text="File Name: ")
+        self.file_name_label.grid(row=4, column=0)
+
+        # File Name Variable
+        self.file_name_var = tk.StringVar()
+
+        # File Name Entry
+        self.file_name_entry = tk.Entry(self, textvariable=self.file_name_var)
+        self.file_name_entry.grid(row=4, column=1)
+
+        # TODO: Add a file browser for attaching the file
+
+        # Submit Button
+        self.submit_button = tk.Button(self, text="Submit", command=self.submit)
+        self.submit_button.grid(row = 6, column=0)
+
+        # Cancel Button
+        self.cancel_button = tk.Button(self, text="Cancel", command=self.cancel)
+        self.cancel_button.grid(row=6, column=1)
+
+    def submit(self):
+        file_hash = self.app.encrypt(self.file_name_var.get())
+        record = []
+        record.append(self.student_num_var.get())
+        record.append(self.first_name_var.get())
+        record.append(self.last_name_var.get())
+        record.append(self.submission_date_var.get())
+        record.append(self.file_name_var.get())
+        record.append(file_hash)
+        record = tuple(record)
+        self.app.add_record(record)
+        self.destroy()
+
+    def cancel(self):
+        self.app.set_username(self.username)
         self.destroy()
 
 class Database():
@@ -140,21 +234,36 @@ class Database():
         self.connection.close()
 
     def create_table(self):
-        # Create a Table called students with a UUID, Student Number and Secret Key for OTP
-        sql_create_table = """ CREATE TABLE IF NOT EXISTS students (
+        # Create a Table called auth with a UUID, Student Number and Secret Key for OTP
+        sql_create_auth_table = """ CREATE TABLE IF NOT EXISTS auth (
                                    id integer PRIMARY KEY,
                                    student_num text NOT NULL UNIQUE,
                                    secret_key text NOT NULL
                                ); """
         try:
-            self.cursor.execute(sql_create_table)
+            self.cursor.execute(sql_create_auth_table)
         except sqlite3.Error as e:
-            print("Failed to create database table:", e)
-    
+            print("Failed to create auth database table:", e)
+
+        # Create a Table called submissions with a UUID, Student Number, Name, Submission Date, File Name and File Hash
+        sql_create_submissions_table = """ CREATE TABLE IF NOT EXISTS submissions (
+                                          id integer PRIMARY KEY,
+                                          student_num text NOT NULL,
+                                          first_name text NOT NULL,
+                                          last_name text NOT NULL,
+                                          submission_date text NOT NULL,
+                                          file_name text NOT NULL,
+                                          file_hash text NOT NULL
+                                       ); """
+        try:
+            self.cursor.execute(sql_create_submissions_table)
+        except sqlite3.Error as e:
+            print("Failed to create submissions database table:", e)
+
     def user_exists(self, student_num):
         # Attempt to Select the Corresponding Student Record
         # If it fails, we assume the student is not registered
-        sql_user_exists = """ SELECT * FROM students WHERE student_num=? """
+        sql_user_exists = """ SELECT * FROM auth WHERE student_num=? """
         try:
             self.cursor.execute(sql_user_exists, (student_num,))
             record = self.cursor.fetchone()
@@ -165,8 +274,8 @@ class Database():
         return False
 
     def add_student(self, student_num, secret_key):
-        # Add a Student to the students Table
-        sql_add_student = """ INSERT INTO students(student_num,secret_key)
+        # Add a Student to the auth Table
+        sql_add_student = """ INSERT INTO auth(student_num,secret_key)
                               VALUES(?,?) """
         record = (student_num, secret_key)
         try:
@@ -178,7 +287,7 @@ class Database():
     def get_secret_key(self, student_num):
         # Get the Secret Key by Student Number
         secret_key = None
-        sql_get_secret_key = """ SELECT * FROM students WHERE student_num=? """
+        sql_get_secret_key = """ SELECT * FROM auth WHERE student_num=? """
         try:
             self.cursor.execute(sql_get_secret_key, (student_num,))
             record = self.cursor.fetchone()
@@ -186,6 +295,9 @@ class Database():
             print("Failed to retrieve record from database:", e)
         secret_key = record[2]
         return secret_key
+
+    def add_submission(self, submission):
+        print(submission, "added to database.")
 
 class App():
     def __init__(self):
@@ -195,7 +307,7 @@ class App():
         self.root = tk.Tk()
         app = Username(self.root, self)
         app.mainloop()
-    
+
     def set_username(self, username):
         if self.database.user_exists(username):
             # Ask the user for a passcode
@@ -221,10 +333,11 @@ class App():
         totp = pyotp.TOTP(secret_key)
         if totp.now() == passcode:
             print(username, "authenticated successfully!")
+            EditSubmission(self.root, self, username)
         else:
             print(username, "could not authenticate.")
             Username(self.root, self)
-    
+
     def show_qrcode(self, username, secret_key):
         # Generate a URI that the authenticator can understand
         auth_uri = pyotp.totp.TOTP(secret_key).provisioning_uri(name=username, issuer_name="Student Record Viewer")
@@ -234,6 +347,19 @@ class App():
         qrcode.png("qr_temp.png", scale=8)
         # Display it in a Window
         QRPopup(self.root, self, username)
+
+    def encrypt(self, file_name):
+        """ TODO:
+        submission_file = None
+        with open('r', file_name) as submission_file:
+            submission_file = encrypt(submission_file)
+        file_hash = md5(submission_file)
+        dropbox.push(submission_file)
+        return(file_hash) """
+        return "FILE HASH"
+
+    def add_record(self, record):
+        self.database.add_submission(record)
 
 if __name__ == '__main__':
     App()
